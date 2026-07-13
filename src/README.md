@@ -5,7 +5,8 @@ A super simple FastAPI application that allows students to view and sign up for 
 ## Features
 
 - View all available extracurricular activities
-- Sign up for activities
+- Teachers can sign in and manage registrations
+- Register and unregister students for activities (teacher-only)
 
 ## Getting Started
 
@@ -30,7 +31,11 @@ A super simple FastAPI application that allows students to view and sign up for 
 | Method | Endpoint                                                          | Description                                                         |
 | ------ | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
 | GET    | `/activities`                                                     | Get all activities with their details and current participant count |
-| POST   | `/activities/{activity_name}/signup?email=student@mergington.edu` | Sign up for an activity                                             |
+| POST   | `/activities/{activity_name}/signup?email=student@mergington.edu` | Register a student for an activity (teacher login required)         |
+| DELETE | `/activities/{activity_name}/unregister?email=student@mergington.edu` | Unregister a student from an activity (teacher login required)   |
+| POST   | `/auth/login`                                                     | Teacher login (JSON body with username/password)                    |
+| POST   | `/auth/logout`                                                    | Teacher logout                                                      |
+| GET    | `/auth/status`                                                    | Current teacher auth status                                         |
 
 ## Data Model
 
@@ -48,3 +53,7 @@ The application uses a simple data model with meaningful identifiers:
    - Grade level
 
 All data is stored in memory, which means data will be reset when the server restarts.
+
+## Teacher Accounts
+
+Teacher usernames and passwords are stored in `teachers.json` and loaded by the backend at startup.
