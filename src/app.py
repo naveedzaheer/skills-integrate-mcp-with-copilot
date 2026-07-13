@@ -5,9 +5,11 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+import json
+import secrets
 import os
 from pathlib import Path
 
@@ -18,6 +20,37 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+# Teacher authentication data and session state
+teachers_file = current_dir / "teachers.json"
+teacher_accounts = {}
+active_sessions = {}
+
+
+def load_teacher_accounts():
+    """Load teacher usernames/passwords from local JSON file."""
+    if not teachers_file.exists():
+        return {}
+
+    with open(teachers_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    return data.get("teachers", {})
+
+
+def require_teacher_session(request: Request):
+    """Validate teacher session from cookie and return username."""
+    session_token = request.cookies.get("teacher_session")
+    username = active_sessions.get(session_token)
+    if not session_token or not username:
+        raise HTTPException(
+            status_code=403,
+            detail="Teacher login required to modify activity registrations"
+        )
+    return username
+
+
+teacher_accounts = load_teacher_accounts()
 
 # In-memory activity database
 activities = {
@@ -88,9 +121,60 @@ def get_activities():
     return activities
 
 
+@app.get("/auth/status")
+def auth_status(request: Request):
+    """Return whether the current user is authenticated as teacher."""
+    session_token = request.cookies.get("teacher_session")
+    username = active_sessions.get(session_token)
+    if not session_token or not username:
+        return {"authenticated": False}
+
+    return {
+        "authenticated": True,
+        "username": username
+    }
+
+
+@app.post("/auth/login")
+def login_teacher(payload: dict, response: Response):
+    """Authenticate a teacher and create a session cookie."""
+    username = payload.get("username", "")
+    password = payload.get("password", "")
+
+    if teacher_accounts.get(username) != password:
+        raise HTTPException(status_code=401, detail="Invalid teacher credentials")
+
+    session_token = secrets.token_urlsafe(24)
+    active_sessions[session_token] = username
+    response.set_cookie(
+        key="teacher_session",
+        value=session_token,
+        httponly=True,
+        samesite="lax"
+    )
+
+    return {
+        "message": "Teacher login successful",
+        "username": username
+    }
+
+
+@app.post("/auth/logout")
+def logout_teacher(request: Request, response: Response):
+    """Logout teacher by invalidating session token and cookie."""
+    session_token = request.cookies.get("teacher_session")
+    if session_token in active_sessions:
+        del active_sessions[session_token]
+
+    response.delete_cookie("teacher_session")
+    return {"message": "Logged out"}
+
+
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
+def signup_for_activity(activity_name: str, email: str, request: Request):
     """Sign up a student for an activity"""
+    require_teacher_session(request)
+
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
@@ -111,8 +195,10 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
+def unregister_from_activity(activity_name: str, email: str, request: Request):
     """Unregister a student from an activity"""
+    require_teacher_session(request)
+
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
